@@ -10,6 +10,7 @@ main = do
   let env = IP.initialEnv
       initialState = IP.newState env $ map (T.dropWhileEnd (== ' ')) $ T.lines c
       go state = case IP.nextToken env state of
-                   Nothing -> pure ()
-                   Just (t, state') -> print t >> go state'
+                   Left m -> putStrLn $ "Error: " ++ m
+                   Right Nothing -> pure ()
+                   Right (Just (t, state')) -> print t >> go state'
   go initialState
