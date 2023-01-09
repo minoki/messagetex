@@ -11,6 +11,7 @@ import qualified Data.Text.IO as T (getContents)
 import qualified ExpansionProcessor as XP
 import qualified InputProcessor as IP
 import           Prelude hiding (lines)
+import           System.Exit (exitFailure)
 import           System.IO (hPutStrLn, stderr)
 import           Types
 
@@ -34,22 +35,35 @@ tokenToString _ (TCommandName { name = ActiveChar c }) = [c]
 tokenToString s (TCommandName { name = ControlSeq name }) = csToString True s name
 tokenToString s (TCommandName { name = FrozenRelax }) = csToString True s "relax"
 
-run :: XP.Context -> XP.State -> IO ()
-run ctx s = case runStateT (runReaderT XP.nextExpandedToken ctx) s of
-              Left e -> hPutStrLn stderr e
-              Right (Nothing, _s) -> pure ()
-              Right (Just (_t, n), s') -> case n of
-                Character c cc -> do putStrLn $ "Character " ++ show c ++ " " ++ show cc
-                                     run ctx s'
-                DefinedCharacter c -> do putStrLn $ "DefinedCharacter " ++ show c
-                                         run ctx s'
-                Nrelax {} -> run ctx s'
-                Nendcsname -> hPutStrLn stderr "Extra \\endcsname"
-                Nlet -> hPutStrLn stderr "\\let: not implemented yet"
-                Nmessage -> case runStateT (runReaderT XP.readExpandedGeneralText ctx) s' of
-                  Left e -> hPutStrLn stderr e
-                  Right (tokens, s'') -> do putStrLn $ concatMap (tokenToString s'') tokens
-                                            run ctx s''
+type M = ReaderT XP.Context (StateT XP.State IO)
+
+runM :: XP.M a -> M a
+runM action = do ctx <- ask
+                 s <- get
+                 case runStateT (runReaderT action ctx) s of
+                   Left e -> liftIO $ do hPutStrLn stderr e
+                                         exitFailure
+                   Right (result, s') -> do put s'
+                                            pure result
+
+mainLoop :: M ()
+mainLoop = do r <- runM XP.nextExpandedToken
+              case r of
+                Nothing -> pure () -- no more token
+                Just (_t, n) -> case n of
+                  Character c cc -> do liftIO $ putStrLn $ "Character " ++ show c ++ " " ++ show cc
+                                       mainLoop
+                  DefinedCharacter c -> do liftIO $ putStrLn $ "DefinedCharacter " ++ show c
+                                           mainLoop
+                  Nrelax {} -> mainLoop
+                  Nendcsname -> liftIO $ do hPutStrLn stderr "Extra \\endcsname"
+                                            exitFailure
+                  Nlet -> liftIO $ do hPutStrLn stderr "\\let: not implemented yet"
+                                      exitFailure
+                  Nmessage -> do tokens <- runM XP.readExpandedGeneralText
+                                 s <- get
+                                 liftIO $ putStrLn $ concatMap (tokenToString s) tokens
+                                 mainLoop
 
 main :: IO ()
 main = do
@@ -75,4 +89,4 @@ main = do
                               , XP.conditionalStack = []
                               }
       ctx = XP.Context { XP.maxExpansionDepth = 100, XP.maxPendingToken = 100 }
-  run ctx initialState
+  evalStateT (runReaderT mainLoop ctx) initialState
