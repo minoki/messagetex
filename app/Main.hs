@@ -11,6 +11,7 @@ import qualified Data.Text.IO as T (getContents)
 import qualified ExpansionProcessor as XP
 import qualified InputProcessor as IP
 import           Prelude hiding (lines)
+import qualified Primitives
 import           System.Exit (exitFailure)
 import           System.IO (hPutStrLn, stderr)
 import           Types
@@ -58,8 +59,8 @@ mainLoop = do r <- runM XP.nextExpandedToken
                   Nrelax {} -> mainLoop
                   Nendcsname -> liftIO $ do hPutStrLn stderr "Extra \\endcsname"
                                             exitFailure
-                  Nlet -> liftIO $ do hPutStrLn stderr "\\let: not implemented yet"
-                                      exitFailure
+                  Nlet -> do runM Primitives.letCommand
+                             mainLoop
                   Nmessage -> do tokens <- runM XP.readExpandedGeneralText
                                  s <- get
                                  liftIO $ putStrLn $ concatMap (tokenToString s) tokens

@@ -87,6 +87,11 @@ lookupCommand (ActiveChar c) = do LocalState { activeCharMap } <- getLocalState
                                            Just v  -> v
 lookupCommand FrozenRelax = pure $ Nonexpandable $ Nrelax { noexpand = False }
 
+meaningWithoutExpansion :: Token -> M Value
+meaningWithoutExpansion (TCommandName { noexpand = True }) = pure $ Nonexpandable $ Nrelax { noexpand = True }
+meaningWithoutExpansion (TCommandName { name, noexpand = False }) = lookupCommand name
+meaningWithoutExpansion (TCharacter c cc) = pure $ Nonexpandable $ Character c cc
+
 nextRawToken :: M (Maybe EToken)
 nextRawToken = do p <- gets pendingTokens
                   case p of
@@ -237,3 +242,33 @@ readExpandedGeneralText = do
   content <- edefReadUntilEndGroup
   leave ScopeByBrace
   pure content
+
+-- Used by \let
+readUnexpandedEquals :: M ()
+readUnexpandedEquals = do
+  t <- nextRawToken
+  case t of
+    Nothing -> pure ()
+    Just (EToken { token = TCharacter '=' CCOther }) -> pure () -- consume '='
+    Just et@(EToken { token }) -> do v <- meaningWithoutExpansion token
+                                     case v of
+                                       Nonexpandable (Character _ CCSpace) -> readUnexpandedEquals
+                                       _ -> unreadToken et
+
+-- Used by \let
+readUnexpandedOneOptionalSpace :: M ()
+readUnexpandedOneOptionalSpace = do
+  t <- nextRawToken
+  case t of
+    Nothing -> pure ()
+    Just et@(EToken { token }) -> do v <- meaningWithoutExpansion token
+                                     case v of
+                                       Nonexpandable (Character _ CCSpace) -> pure () -- consume a space (explicit or implicit)
+                                       _ -> unreadToken et
+
+readCommandName :: M CommandName
+readCommandName = do
+  t <- nextTokenWithoutExpansion `mor` throwError "expected a command name"
+  case t of
+    TCommandName { name, noexpand = _ } -> pure name -- 'noexpand' flag is ignored
+    _ -> throwError $ "unexpected character token: " ++ show t
