@@ -1,5 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 module InputProcessor where
 import           Control.Applicative ((<|>))
 import           Control.Monad.Except
@@ -81,7 +82,7 @@ getCatcode m c = case Map.lookup c m of
                                 CCOther
 
 parToken :: Token
-parToken = TCommandName (ControlSeq "par")
+parToken = TCommandName { name = ControlSeq "par", noexpand = False }
 
 spaceToken :: Token
 spaceToken = TCharacter ' ' CCSpace
@@ -157,16 +158,16 @@ nextToken env@(Env { catcodeMap = _, endlinechar }) (State { lines = currentLine
            in case cc of
              CCEscape -> do n' <- nextChar env restOfLine
                             case n' of
-                              Nothing -> pure $ Just (TCommandName (ControlSeq ""), State { lines = T.empty : rest, lineState = SkipSpaces }) -- Since the control sequence may change \endlinechar, don't go to next line here
+                              Nothing -> pure $ Just (TCommandName { name = ControlSeq "", noexpand = False }, State { lines = T.empty : rest, lineState = SkipSpaces }) -- Since the control sequence may change \endlinechar, don't go to next line here
                               Just (c1, CCLetter, restOfLine1) -> -- control word
                                 let go l acc = do n'' <- nextChar env l
                                                   case n'' of
-                                                    Nothing -> pure $ Just (TCommandName (ControlSeq (T.pack (reverse acc))), State { lines = T.empty : rest, lineState = SkipSpaces })
+                                                    Nothing -> pure $ Just (TCommandName { name = ControlSeq (T.pack (reverse acc)), noexpand = False }, State { lines = T.empty : rest, lineState = SkipSpaces })
                                                     Just (c', CCLetter, restOfLine') -> go restOfLine' (c' : acc)
-                                                    Just (c', _, restOfLine') -> pure $ Just (TCommandName (ControlSeq (T.pack (reverse acc))), State { lines = T.cons c' restOfLine' : rest, lineState = SkipSpaces })
+                                                    Just (c', _, restOfLine') -> pure $ Just (TCommandName { name = ControlSeq (T.pack (reverse acc)), noexpand = False }, State { lines = T.cons c' restOfLine' : rest, lineState = SkipSpaces })
                                 in go restOfLine1 [c1]
                               Just (c1, cc1, restOfLine1) -> -- control symbol / space
-                                pure $ Just (TCommandName (ControlSeq (T.singleton c1)), State { lines = restOfLine1 : rest, lineState = if cc1 == CCSpace then SkipSpaces else MiddleOfLine })
+                                pure $ Just (TCommandName { name = ControlSeq (T.singleton c1), noexpand = False }, State { lines = restOfLine1 : rest, lineState = if cc1 == CCSpace then SkipSpaces else MiddleOfLine })
              CCBeginGroup -> pure $ Just (TCharacter c CCBeginGroup, nextState)
              CCEndGroup -> pure $ Just (TCharacter c CCEndGroup, nextState)
              CCMathShift -> pure $ Just (TCharacter c CCMathShift, nextState)
@@ -184,6 +185,6 @@ nextToken env@(Env { catcodeMap = _, endlinechar }) (State { lines = currentLine
                _ -> nextToken env (State { lines = restOfLine : rest, lineState = lineState })
              CCLetter -> pure $ Just (TCharacter c CCLetter, nextState)
              CCOther -> pure $ Just (TCharacter c CCOther, nextState)
-             CCActive -> pure $ Just (TCommandName (ActiveChar c), nextState)
+             CCActive -> pure $ Just (TCommandName { name = ActiveChar c, noexpand = False }, nextState)
              CCComment -> nextToken env nextStateWithNewLine
              CCInvalid -> throwError "invalid character" -- nextToken env (State { lines = restOfLine : rest, lineState = lineState })
